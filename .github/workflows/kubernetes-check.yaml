@@ -1,0 +1,123 @@
+name: Kubernetes check
+on:
+  workflow_call:
+    inputs:
+      skip:
+        type: string
+        default: '[]'
+        required: false
+        description: JSON list of steps to skip
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      ENVIRONMENT_NAMES:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_ASSUMABLE_ROLES_MAP:
+        required: true
+
+jobs:
+  env:
+    name: Env
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      names: ${{ steps.env.outputs.names }}
+
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+    -
+      id: env
+      run: |
+        echo "names=$(github-env-names -t kubernetes -o json || echo '[]')" >> $GITHUB_OUTPUT
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  kustomize:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Kustomize (local)"
+    if: ${{ ! contains(fromJson(inputs.skip), 'kustomize') }}
+    container:
+      image:  ghcr.io/skafld/core-infra/ci:latest
+      credentials:
+        username: skafld
+        password: ${{ secrets.CI_PAT }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+    -
+      name: Configure git override
+      run: |
+        git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com/skafld".insteadOf git@github.com:skafld
+    -
+      name: Configure kubectl local
+      run: |
+        mkdir ~/.kube;
+        cat > ~/.kube/config << EOF
+        apiVersion: v1
+        preferences: {}
+        kind: Config
+        contexts:
+        - context:
+          name: docker-desktop
+        current-context: docker-desktop
+        EOF
+    -
+      name: Kubernetes kustomize
+      run: make ENV=local kubectl/kustomize
+
+  dry-run:
+    name: "Dry-run"
+    needs: [env, kustomize]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    if: ${{ always() && ! contains(fromJson(inputs.skip), 'dry-run') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJson(needs.env.outputs.names) }}
+    container:
+      image:  ghcr.io/skafld/core-infra/ci:latest
+      credentials:
+        username: skafld
+        password: ${{ secrets.CI_PAT }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+    -
+      name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Setup kube config
+      run: |
+        mkdir ~/.kube
+        aws ssm get-parameter --name ${{ matrix.env }}-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[matrix.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[matrix.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: kubectl dry-run
+      run: make ENV=${{ matrix.env }} kubectl/dry-run

@@ -1,0 +1,168 @@
+name: Acceptance check
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'local | development | load | production'
+        default: 'local'
+        required: true
+        type: string
+      skip:
+        type: string
+        default: '[]'
+        required: false
+        description: JSON list of steps to skip
+      java_version:
+        type: string
+        default: '17'
+        required: false
+        description: Java version
+      minikube_version:
+        type: string
+        required: false
+        default: 'v1.16.0'
+        description: minikube version
+      kubernetes_version:
+        type: string
+        required: false
+        default: 'v1.18.18'
+        description: Kubernetes version
+      remote_environment_names:
+        type: string
+        required: false
+        default: '["development"]'
+        description: JSON list of environments where acceptance can run
+      node_version:
+        type: string
+        default: '16'
+        required: false
+        description: NodeJS version
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_ASSUMABLE_ROLES_MAP:
+        required: true
+jobs:
+  gherkin-lint:
+    name: "Gherkin lint"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    if: ${{ ! contains(fromJson(inputs.skip), 'gherkin-lint') }}
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+      -
+        name: Setup NodeJS
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ inputs.node_version }}
+      -
+        name: Configure npmrc
+        run: |
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.CI_PAT }}" > ~/.npmrc
+      -
+        name: Install linter
+        run: sudo npm install -g gherkin-lint
+      -
+        name: Gherkin lint
+        run: make ENV=local acceptance/gherkin-lint
+
+  dry-run:
+    needs: [gherkin-lint]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Dry-run"
+    if: ${{ ! contains(fromJson(inputs.skip), 'dry-run') }}
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+    -
+      name: Setup java
+      uses: actions/setup-java@v3
+      with:
+        cache: maven
+        distribution: adopt
+        java-version: ${{ inputs.java_version }}
+        server-id: github
+        server-username: GITHUB_USER
+        server-password: GITHUB_TOKEN
+
+    -
+      name: Acceptance dry-run
+      run: |
+        make ENV=local acceptance/dry-run
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  verify:
+    needs: [dry-run]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Verify - (${{ inputs.env }})"
+    concurrency: acceptance-${{ inputs.env }}
+    if: ${{ contains(fromJson(inputs.remote_environment_names), inputs.env) }}
+    environment:
+      name: kubernetes-${{ inputs.env }}
+    steps:
+      -
+        name: Configure git override
+        run: |
+          git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com/skafld".insteadOf git@github.com:skafld
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+      -
+        name: Setup java
+        uses: actions/setup-java@v3
+        with:
+          cache: maven
+          distribution: adopt
+          java-version: ${{ inputs.java_version }}
+          server-id: github
+          server-username: GITHUB_USER
+          server-password: GITHUB_TOKEN
+
+      -
+        name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: us-east-1
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      -
+        name: Setup remote kube config
+        run: |
+          mkdir ~/.kube
+          aws ssm get-parameter --name development-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
+      -
+        name: Assume AWS Role
+        uses: aws-actions/configure-aws-credentials@v2
+        if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[matrix.env] }}
+        with:
+          aws-region: us-east-1
+          role-duration-seconds: 1800
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[matrix.env] }}
+        env:
+          AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+      -
+        name: Wait for it
+        run: |
+          make ENV=${{ inputs.env }} acceptance/api-wait-for-start
+      -
+        name: Run tests
+        run: |
+          make ENV=${{ inputs.env }} acceptance/test
+        env:
+          GITHUB_USER: skafld
+          GITHUB_TOKEN: ${{ secrets.CI_PAT }}

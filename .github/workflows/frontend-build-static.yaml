@@ -1,0 +1,141 @@
+name: Frontend check
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        type: string
+        default: '14'
+        required: false
+        description: NodeJS version
+      dist_folder:
+        type: string
+        default: 'dist'
+        required: false
+        description: Dist folder
+      frontend_modules:
+        type: string
+        default: '[]'
+        required: false
+        description: Json list of frontend modules
+      env:
+        type: string
+        default: 'development'
+        required: false
+        description: Environment
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted","development"]'
+        description: GitHub runner tags
+      branch_name:
+        type: string
+        required: false
+        default: 'main'
+        description: The branch name
+    secrets:
+      CI_PAT:
+        required: true
+      ID_RSA:
+        required: true
+      ENVIRONMENT_NAMES:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_ASSUMABLE_ROLES_MAP:
+        required: true
+
+jobs:
+  # Build static assets
+  build:
+    name: "Static Build"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    if: ${{ inputs.frontend_modules != '[]' }}
+    strategy:
+      matrix:
+        module: ${{ fromJson(inputs.frontend_modules) }}
+    steps:
+    -
+      name: Setup kernel for nodejs, increase watchers
+      run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+    -
+      name: Checkout Project
+      uses: actions/checkout@v1
+    -
+      name: Configure SSH KEYS
+      uses: webfactory/ssh-agent@v0.5.0
+      with:
+        ssh-private-key: |
+          ${{ secrets.ID_RSA }}
+    -
+      name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Setup NodeJS
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{inputs.node_version}}
+    -
+      name: Configure npmrc
+      run: |
+        echo "//npm.pkg.github.com/:_authToken=${{ secrets.CI_PAT }}" > ~/.npmrc
+        npm install -g yarn
+    -
+      name: Retrieve deploy information
+      id: deploy_information
+      run: |
+        bucket_name=$( cat ${{ matrix.module }}/package.json | jq '.deploy."${{ inputs.env }}".bucket_name' )
+        distribution_id=$( cat ${{ matrix.module }}/package.json | jq '.deploy."${{ inputs.env }}".distribution_id' )
+        region=$( cat ${{ matrix.module }}/package.json | jq '.deploy."${{ inputs.env }}".region' )
+        cypress_key=$( cat ${{ matrix.module }}/package.json | jq -n '.deploy."${{ inputs.env }}".cypress_key' )
+        cat ${{ matrix.module }}/package.json | \
+          jq '.deploy."${{ inputs.env }}" | to_entries | map("\(.key)=\(.value)")|.[]' -r | \
+          tee $GITHUB_OUTPUT
+    -
+      name: Build assets
+      run: make ENV=${{ inputs.env }} BRANCH_NAME="${{ github.ref_name }}" CYPRESS_KEY=${{ steps.deploy_information.outputs.cypress_key }} static/build/${{ matrix.module }}
+    -
+      name: Cypress Failure Artifact
+      uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: ${{ matrix.module }}-cypress-screenshots
+        path: ${{ matrix.module }}/cypress/screenshots
+      # Test run video was always captured, so this action uses "always()" condition
+    -
+      name: Cypress video
+      uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: ${{ matrix.module }}-cypress-videos
+        path: ${{ matrix.module }}/cypress/videos
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: Deploy assets
+      uses: reggionick/s3-deploy@v3
+      with:
+        folder: ${{ matrix.module }}/${{ inputs.dist_folder }}
+        bucket: ${{ steps.deploy_information.outputs.bucket_name }}
+        dist-id: ${{ steps.deploy_information.outputs.distribution_id }}
+        bucket-region: ${{ steps.deploy_information.outputs.region }}
+        invalidation: /*
+        delete-removed: true
+        no-cache: false
+        private: true
+ 

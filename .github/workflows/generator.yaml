@@ -1,0 +1,68 @@
+name: Generator
+on:
+  workflow_call:
+    inputs:
+      generator:
+        type: string
+        required: true
+        description: Generator
+      options:
+        type: string
+        default: '{}'
+        required: false
+        description: JSON map of generator options
+      untracked_files:
+        type: string
+        default: '[]'
+        required: true
+        description: JSON list file to ignore when changed
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+
+jobs:
+  run:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Run (${{ inputs.generator }})"
+    steps:
+    -
+      name: Checkout Code
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+        clean: true
+    -
+      name: Checkout Runner
+      uses: actions/checkout@v3
+      with:
+        repository: skafld/yeoman-generator-runner
+        path: ./.temp/yeoman-generator-runner
+        token: ${{ secrets.CI_PAT }}
+        clean: true
+        ref: main
+    -
+      id: config
+      name: Read Answers
+      run: |
+        echo "answers=$(jq '."generator-skafld"' .yo-rc.json --compact-output  --raw-output)" >> $GITHUB_OUTPUT
+    -
+      name: Run Generator
+      uses: ./.temp/yeoman-generator-runner
+      with:
+        options: ${{ inputs.options }}
+        generator: ${{ inputs.generator }}
+        github-token: '${{ secrets.CI_PAT }}'
+        answers: '${{ steps.config.outputs.answers }}'
+        untracked-files: ${{ inputs.untracked_files }}
+        package: https://x-access-token:${{ secrets.CI_PAT }}@github.com/skafld/generator-skafld.git
+        git-remote-origin-url: https://x-access-token:${{ secrets.CI_PAT }}@github.com/${{ github.repository }}
+        git-config: |
+          {
+            "user.name": "skafld",
+            "user.email": "skafld@users.noreply.github.com"
+          }

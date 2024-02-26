@@ -1,0 +1,169 @@
+name: Docker check
+on:
+  workflow_call:
+    inputs:
+      docker_modules:
+        type: string
+        default: '[]'
+        required: true
+        description: Json list of docker modules
+      docker_image_tag:
+        type: string
+        required: false
+        default: latest
+        description: Json list of docker modules
+      docker_platform:
+        type: string
+        default: ''
+        required: false
+        description: Docker build platform
+      java_modules:
+        type: string
+        default: '[]'
+        required: false
+        description: Json list of java modules
+      java_version:
+        type: string
+        default: '17'
+        required: false
+        description: Java version
+      python_modules:
+        type: string
+        default: '[]'
+        required: false
+        description: Json list of python modules
+      python_version:
+        type: string
+        default: '3.8'
+        required: false
+        description: Python version
+      before_build:
+        type: string
+        default: ''
+        required: false
+        description: Bash script to run before docker build
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+    outputs:
+      docker_image_tag:
+        description: "Docker image tag"
+        value: "${{ jobs.gitversion.outputs.docker_tag }}"
+
+jobs:
+  gitversion:
+    name: GitVersion
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      docker_tag: v${{ steps.gitversion.outputs.MajorMinorPatch }}-${{ steps.gitversion.outputs.ShortSha }}
+    steps:
+    -
+      id: checkout
+      name: Code Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    -
+      id: setup
+      name: Setup GitTools
+      uses: gittools/actions/gitversion/setup@v0.10.2
+      with:
+        versionSpec: '5.10.3'
+    -
+      id: gitversion
+      name: Execute GitVersion
+      uses: gittools/actions/gitversion/execute@v0.10.2
+
+  build:
+    name: Build
+    needs: [gitversion]
+    if: ${{ inputs.docker_modules != '[]' }}
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(inputs.docker_modules) }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+    -
+      id: properties
+      name: Read properties
+      run: |
+        echo "java_version=$(cut -d'=' -f2 <<< $(grep -s java_version ${{ matrix.module }}/build.properties || echo '${{ inputs.java_version }}'))" >> $GITHUB_OUTPUT
+        echo "python_version=$(cut -d'=' -f2 <<< $(grep -s python_version ${{ matrix.module }}/build.properties || echo '${{ inputs.python_version }}'))" >> $GITHUB_OUTPUT
+        echo "docker_platform=$(cut -d'=' -f2 <<< $(grep -s docker_platform ${{ matrix.module }}/build.properties || echo '${{ inputs.docker_platform }}'))" >> $GITHUB_OUTPUT
+    -
+      name: Configure git override
+      run: |
+        git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
+    -
+      name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Login to ECR
+      uses: aws-actions/amazon-ecr-login@v1
+    -
+      name: Setup Docker QEMU
+      if: ${{ steps.properties.outputs.docker_platform }}
+      uses: docker/setup-qemu-action@v2
+      with:
+        image: 'public.ecr.aws/eks-distro-build-tooling/binfmt-misc:qemu-v7.0.0'
+    - name: Setup Buildx
+      if: ${{ steps.properties.outputs.docker_platform }}
+      #TODO: Move this to CI image
+      run: |
+        mkdir -p /home/runner/.docker/cli-plugins/
+        wget https://github.com/docker/buildx/releases/download/v0.10.4/buildx-v0.10.4.linux-amd64 -qO /home/runner/.docker/cli-plugins/docker-buildx && chmod +x /home/runner/.docker/cli-plugins/docker-buildx
+        docker context create buildx-builder
+        docker context use buildx-builder
+        docker buildx create --name buildx-builder --driver docker-container --use buildx-builder
+    -
+      name: Setup java
+      uses: actions/setup-java@v3
+      if: ${{ contains(fromJson(inputs.java_modules), matrix.module) }}
+      with:
+        cache: maven
+        distribution: adopt
+        java-version: ${{ steps.properties.outputs.java_version }}
+        server-id: github
+        server-username: GITHUB_USER
+        server-password: GITHUB_TOKEN
+
+    -
+      name: Setup Python
+      uses: actions/setup-python@v2
+      if: ${{ contains(fromJson(inputs.python_modules), matrix.module) }}
+      with:
+        python-version: ${{ steps.properties.outputs.python_version }}
+    -
+      name: Before build
+      if: ${{ inputs.before_build }}
+      run: ${{ inputs.before_build }}
+      env:
+        MODULE_NAME: ${{ matrix.module }}
+        DOCKER_TAG: ${{ needs.gitversion.outputs.docker_tag }}
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Build image
+      run: make docker/build/${{ matrix.module }} DOCKER_IMAGE_TAG=${{ needs.gitversion.outputs.docker_tag }} DOCKER_PLATFORM=${{ steps.properties.outputs.docker_platform }}
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}

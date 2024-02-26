@@ -1,0 +1,173 @@
+name: Terraform apply
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'development | load | production'
+        default: 'development'
+        required: true
+        type: string
+      ref:
+        description: Git Ref (Default to workflow branch)
+        required: false
+        type: string
+        default: ''
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      ENVIRONMENT_NAMES:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_ASSUMABLE_ROLES_MAP:
+        required: true
+
+jobs:
+  ref:
+    name: Ref
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+    -
+      id: version
+      run: |
+        echo "ref=${{ github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}" >> $GITHUB_OUTPUT
+
+  env:
+    name: Env
+    needs: [ref]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      names: ${{ steps.env.outputs.names }}
+
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      id: env
+      run: |
+        echo "names=$(github-env-names -t terraform -o json || echo '[]')" >> $GITHUB_OUTPUT
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  plan:
+    needs: [ref, env]
+    name: "Plan (${{ inputs.env }})"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    concurrency: terraform-${{ github.event.inputs.env }}
+    if: contains(fromJson(needs.env.outputs.names), inputs.env)
+    env:
+      GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+    steps:
+    -
+      name: Configure git override
+      run: |
+        git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Create aws profile
+      run: aws configure set region $AWS_REGION --profile ${{ inputs.env }}
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: Terraform init
+      run: make ENV=${{ inputs.env }} terraform/init
+    -
+      name: Terraform plan
+      run: make ENV=${{ inputs.env }} TF_CMD_ARGS='-out=terraform.plan' terraform/plan
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Save terraform plan
+      uses: actions/upload-artifact@v3
+      with:
+        name: terraform.plan
+        path: infra/terraform/terraform.plan
+
+  apply:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    needs: [ref, env, plan]
+    name: "Apply (${{ inputs.env }})"
+    if: contains(fromJson(needs.env.outputs.names), inputs.env)
+    environment:
+      name: terraform-${{ inputs.env }}
+
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      name: Configure git override
+      run: |
+        git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
+    -
+      name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Create aws profile
+      run: aws configure set region $AWS_REGION --profile ${{ inputs.env }}
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: Restore terraform plan
+      uses: actions/download-artifact@v2
+      with:
+        name: terraform.plan
+        path: infra/terraform
+    -
+      name: Terraform init
+      run: make ENV=${{ inputs.env }} terraform/init
+    -
+      name: Terraform apply
+      run: make ENV=${{ inputs.env }} TF_CMD_ARGS='-auto-approve terraform.plan' terraform/apply
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}

@@ -1,0 +1,45 @@
+name: GitVersion
+on:
+  workflow_call:
+    inputs:
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    outputs:
+      version:
+        description: "Version"
+        value: "${{ jobs.compare.outputs.version }}"
+      tag:
+        description: "Tag"
+        value: "${{ jobs.compare.outputs.tag }}"
+
+jobs:
+  compare:
+    name: Compare
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      version: ${{ steps.gitversion.outputs.MajorMinorPatch }}-${{ steps.gitversion.outputs.ShortSha }}
+      tag: v${{ steps.gitversion.outputs.MajorMinorPatch }}-${{ steps.gitversion.outputs.ShortSha }}
+    steps:
+    -
+      id: checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+#     -
+#       id: setup-dotnet
+#       run: |
+#         wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+#         sudo dpkg -i packages-microsoft-prod.deb
+#         rm packages-microsoft-prod.deb
+#         sudo apt-get update && sudo apt-get install -y dotnet-sdk-6.0
+    -
+      id: setup
+      uses: gittools/actions/gitversion/setup@v0.10.2
+      with:
+        versionSpec: '5.10.3'
+    -
+      id: gitversion
+      uses: gittools/actions/gitversion/execute@v0.10.2

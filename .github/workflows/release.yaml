@@ -1,0 +1,115 @@
+name: Release
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'development | load | production'
+        default: 'production'
+        required: true
+        type: string
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+
+jobs:
+  ref:
+    name: Ref
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+    -
+      id: version
+      run: |
+        echo "ref=${{ github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}" >> $GITHUB_OUTPUT
+
+  env:
+    name: Env
+    needs: [ref]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      terraform_names: ${{ steps.terraform.outputs.names }}
+      kubernetes_names: ${{ steps.kubernetes.outputs.names }}
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      id: terraform
+      run: |
+        echo "names=$(github-env-names -t terraform -o json || echo '[]')" >> $GITHUB_OUTPUT
+    -
+      id: kubernetes
+      run: |
+        echo "names=$(github-env-names -t kubernetes -o json || echo '[]')" >> $GITHUB_OUTPUT
+
+  diff:
+    name: Diff
+    needs: [env]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      terraform: ${{ steps.changes.outputs.terraform }}
+      kubernetes: ${{ steps.changes.outputs.kubernetes }}
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    steps:
+      -
+        id: changes
+        run: |
+          echo "terraform=$(github-release-notes changelog-status -c terraform -t ${{ github.event.release.tag_name }})" >> $GITHUB_OUTPUT
+          echo "kubernetes=$(github-release-notes changelog-status -c kubernetes -t ${{ github.event.release.tag_name }})" >> $GITHUB_OUTPUT
+
+  kubernetes-apply:
+    needs: [diff, env]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Trigger kubernetes apply (${{ inputs.env }})"
+    if: ${{ needs.diff.outputs.kubernetes == 'changed' && contains(fromJson(needs.env.outputs.kubernetes_names), inputs.env) }}
+    steps:
+      -
+        id: dispatch
+        name: Trigger Deployment
+        uses: octokit/request-action@v2.x
+        with:
+          route: POST /repos/${{ github.repository }}/actions/workflows/:workflow/dispatches
+          mediaType: |
+            format: application/vnd.github.v3+json
+          workflow: kubernetes-apply.yaml
+          ref: ${{ github.ref }}
+          inputs: |
+            env: ${{ inputs.env }}
+            ref: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  terraform-apply:
+    needs: [diff, env]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Trigger terraform apply (${{ inputs.env }})"
+    if: ${{ needs.diff.outputs.terraform == 'changed' && contains(fromJson(needs.env.outputs.terraform_names), inputs.env) }}
+    steps:
+      -
+        id: dispatch
+        name: Trigger Deployment
+        uses: octokit/request-action@v2.x
+        with:
+          route: POST /repos/${{ github.repository }}/actions/workflows/:workflow/dispatches
+          mediaType: |
+            format: application/vnd.github.v3+json
+          workflow: terraform-apply.yaml
+          ref: ${{ github.ref }}
+          inputs: |
+            env: ${{ inputs.env }}
+            ref: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_PAT }}

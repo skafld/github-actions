@@ -1,0 +1,75 @@
+name: PHP check
+on:
+  workflow_call:
+    inputs:
+      php_versions:
+        type: string
+        default: '["7.0", "7.1", "7.2", "7.3", "7.4", "8.0", "8.1", "8.2", "8.3"]'
+        required: false
+        description: PHP version
+      php_extensions:
+        type: string
+        default: php
+        required: false
+        description: PHP extensions
+      php_tools:
+        type: string
+        default: 'parallel-lint'
+        required: false
+        description: PHP tools
+      parallel_lint_options:
+        type: string
+        default: '-s --colors --blame'
+        required: false
+        description: parallel-lint options
+      directories:
+        type: string
+        default: '["."]'
+        required: false
+        description: Directories
+      runner_tags:
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  verify:
+    name: "Verify"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    strategy:
+      matrix:
+        php-versions: ${{ fromJson(inputs.php_versions) }}
+        directories: ${{ fromJson(inputs.directories) }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+    -
+      name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Login to ECR
+      uses: aws-actions/amazon-ecr-login@v1
+    - 
+      name: Setup PHP > ${{ matrix.php-versions }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '${{ inputs.php_version }}'
+        tools: ${{ inputs.php_tools }}
+    -
+      name: PHP lint > ${{ matrix.directories }}
+      run: parallel-lint -e ${{inputs.php_extensions}} ${{inputs.parallel_lint_options}} ${{ matrix.directories }}

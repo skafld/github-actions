@@ -1,0 +1,63 @@
+name: Push docker image to ECR
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+        description: 'JSON formatted file containing an array of docker images to be mirrored in ECR'
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+jobs:
+  images:
+    name: Images
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      image_names: ${{ steps.images.outputs.image_names }}
+    steps:
+      -
+        name: Checkout Project
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.CI_PAT }}
+      - id: images
+        run: echo "image_names=$(cat ${{ inputs.config }})" >> "$GITHUB_OUTPUT"
+
+  docker-image-to-ecr:
+    name: "Push to ECR"
+    needs: [images]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        docker-image: ${{ fromJson(needs.images.outputs.image_names) }}
+    steps:
+      -
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: us-east-1
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+        # TODO Move this to CI image
+      - name: Install regctl
+        run: |
+          mkdir $HOME/.regctl
+          curl -fsSL https://github.com/regclient/regclient/releases/download/v0.4.7/regctl-linux-amd64 > "$HOME/.regctl/regctl"
+          chmod 755 "$HOME/.regctl/regctl"
+          echo "$HOME/.regctl" >> $GITHUB_PATH
+      - name: Check install
+        run: regctl version
+      - name: Pull and retag
+        run: regctl image copy ${{ matrix.docker-image }} __ACCOUNT__.dkr.ecr.us-east-1.amazonaws.com/skafld/${{ matrix.docker-image }}

@@ -1,0 +1,89 @@
+name: Maven check
+on:
+  workflow_call:
+    inputs:
+      java_version:
+        type: string
+        default: '17'
+        required: false
+        description: Java version
+      maven_modules:
+        type: string
+        default: '[]'
+        required: true
+        description: Json list of java modules
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  verify:
+    name: "Verify"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(inputs.maven_modules) }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+    -
+      name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Login to ECR
+      uses: aws-actions/amazon-ecr-login@v1
+    -
+      name: Setup java
+      uses: actions/setup-java@v3
+      with:
+        cache: maven
+        distribution: adopt
+        java-version: ${{ inputs.java_version }}
+        server-id: github
+        server-username: GITHUB_USER
+        server-password: GITHUB_TOKEN
+
+    -
+      name: Maven verify
+      run: make maven/verify/${{ matrix.module }}
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Publish Test Report
+      uses: mikepenz/action-junit-report@v3
+      if: success() || failure() # always run even if the previous step fails
+      with:
+        report_paths: '${{ matrix.module }}/target/surefire-reports/TEST-*.xml'
+    -
+      name: Archive code coverage results
+      uses: actions/upload-artifact@v3
+      if: ${{ always() && hashFiles(env.JACOCO_FILE) != '' }}
+      with:
+        name: ${{ matrix.module }}-code-coverage-report
+        path: ${{ matrix.module }}/target/site/jacoco/
+      env:
+        JACOCO_FILE: ${{ matrix.module }}/target/site/jacoco/index.html
+    - name: Archive jar files
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.module }}-package-artifact
+        path: ${{ matrix.module }}/target/*.jar
+        retention-days: 7

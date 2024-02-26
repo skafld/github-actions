@@ -1,0 +1,67 @@
+name: Scheduler trigger dag update
+on:
+  workflow_call:
+    inputs:
+      dag_name:
+        type: string
+        required: true
+        description: "Dag name (Eq: etlstandards)"
+      env_name:
+        type: string
+        required: false
+        default: development
+        description: "Env name (development | load | production)"
+      image_tag:
+        type: string
+        required: false
+        description: "Image tag (Eq: v1.2.3)"
+      diff_tags:
+        type: string
+        default: '{}'
+        required: true
+        description: "JSON containing the diff tags"
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+
+jobs:
+  dispatch:
+    name: "Dispatch"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    steps:
+    -
+      id: dag
+      if: ${{ fromJson(inputs.diff_tags).dags.changed }}
+      run: |
+        echo "image_tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+    -
+      id: config
+      if: ${{ fromJson(inputs.diff_tags).spark.changed || fromJson(inputs.diff_tags).pyspark.changed }}
+      run: |
+        echo "config_name=SPARK_IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "config_value=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+    -
+      id: dispatch
+      uses: octokit/request-action@v2.x
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+      with:
+        route: POST /repos/:owner/:repository/actions/workflows/:workflow/dispatches
+        mediaType: |
+          format: application/vnd.github.v3+json
+        owner: skafld
+        repository: scheduler
+        workflow: update-dag.yaml
+        ref: main
+        inputs: |
+          env_name: "${{ inputs.env_name }}"
+          dag_name: "${{ inputs.dag_name }}"
+          dag_image_tag: "${{ steps.dag.outputs.image_tag }}"
+          dag_config_name: "${{ steps.config.outputs.config_name }}"
+          dag_config_value: "${{ steps.config.outputs.config_value }}"
+          commit_message: "Triggered by https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"

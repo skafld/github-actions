@@ -1,0 +1,21 @@
+name: Debug
+on:
+  workflow_call:
+    inputs:
+      message:
+        description: Message
+        required: true
+        type: string
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+jobs:
+  notify:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    steps:
+      - name: Print info
+        run: |
+          echo "${{ toJSON(github.event.inputs) }}"
+          echo "${{ toJSON(inputs) }}"

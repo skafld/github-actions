@@ -1,0 +1,77 @@
+name: Diff
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+        description: 'YAML file containing modules to track'
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+    outputs:
+      diff:
+        description: "diff"
+        value: "${{ jobs.diff.outputs.diff }}"
+      tags:
+        description: "tags"
+        value: "${{ jobs.diff.outputs.tags }}"
+      modules:
+        description: "modules"
+        value: "${{ jobs.diff.outputs.modules }}"
+      changed:
+        description: "changed"
+        value: "${{ jobs.diff.outputs.changed }}"
+      java_modules:
+        description: "java modules"
+        value: "${{ jobs.diff.outputs.java_modules }}"
+      java_packages:
+        description: "java packages"
+        value: "${{ jobs.diff.outputs.java_packages }}"
+      python_modules:
+        description: "python modules"
+        value: "${{ jobs.diff.outputs.python_modules }}"
+      php_modules:
+        description: "php modules"
+        value: "${{ jobs.diff.outputs.php_modules }}"
+      frontend_modules:
+        description: "Frontend modules"
+        value: "${{ jobs.diff.outputs.frontend_modules }}"
+      docker_modules:
+        description: "docker modules"
+        value: "${{ jobs.diff.outputs.docker_modules }}"
+
+jobs:
+  diff:
+    name: Compare
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      diff: ${{ steps.run.outputs.diff }}
+      tags: ${{ steps.run.outputs.tags }}
+      modules: ${{ steps.run.outputs.modules }}
+      changed: ${{ steps.run.outputs.changed }}
+      java_modules: ${{ toJSON(fromJson(steps.run.outputs.tags).java.modules) }}
+      java_packages: ${{ toJSON(fromJson(steps.run.outputs.tags).java_package.modules) }}
+      python_modules: ${{ toJSON(fromJson(steps.run.outputs.tags).python.modules) }}
+      php_modules: ${{ toJSON(fromJson(steps.run.outputs.tags).php.modules) }}
+      frontend_modules: ${{ toJSON(fromJson(steps.run.outputs.tags).frontend.modules) }}
+      docker_modules: ${{ toJSON(fromJson(steps.run.outputs.tags).docker.modules) }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+    -
+      id: run
+      name: Diff Action
+      uses: skafld/diff-action@0.2.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        config: ${{ inputs.config }}
+    -
+      name: Print output
+      run: echo '${{ toJSON(steps.run.outputs) }}' | jq .

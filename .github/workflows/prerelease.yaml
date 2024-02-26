@@ -1,0 +1,48 @@
+name: Pre Release
+on:
+  workflow_call:
+    inputs:
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+
+jobs:
+  release-notes:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: Prepare release notes
+
+    steps:
+      -
+        name: View context attributes
+        uses: actions/github-script@v3
+        with:
+          script: console.log(context)
+      -
+        name: Generate release notes
+        run: |
+            github-release-notes generate -t ${{ github.event.release.tag_name }} > changelog.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+      -
+        name: Update release body
+        uses: actions/github-script@0.9.0
+        with:
+          result-encoding: string
+          script: |
+            const fs = require('fs');
+            const release_id = context.payload.release.id;
+            const body = fs.readFileSync('changelog.md', 'utf8');
+
+            github.repos.updateRelease({
+              repo: context.payload.repository.name,
+              release_id: release_id,
+              owner: "skafld",
+              body: body
+            });
+
+            return body

@@ -1,0 +1,70 @@
+name: Pyspark check
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        type: string
+        default: '3.8'
+        required: false
+        description: Python version
+      poetry_version:
+        type: string
+        default: '1.1.15'
+        required: false
+        description: poetry version
+    secrets:
+      CI_PAT:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  verify:
+    name: "Verify"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+        submodules: true
+    -
+      name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Login to ECR
+      uses: aws-actions/amazon-ecr-login@v1
+    -
+      name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ inputs.python_version }}
+    -
+      name: Install poetry
+      run: |
+        pip install --disable-pip-version-check "poetry==${{ inputs.poetry_version }}"
+    -
+      name: Install dependencies
+      run: make pyspark/configure
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Run checkstyle
+      run: make pyspark/checkstyle
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Run tests
+      run: make pyspark/test
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}

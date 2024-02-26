@@ -1,0 +1,99 @@
+name: Frontend check
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        type: string
+        default: '14'
+        required: false
+        description: NodeJS version
+      frontend_modules:
+        type: string
+        default: '[]'
+        required: false
+        description: Json list of frontend modules
+      env:
+        type: string
+        default: 'development'
+        required: false
+        description: Environment
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted","development"]'
+        description: GitHub runner tags
+      branch_name:
+        type: string
+        required: false
+        default: 'main'
+        description: The branch name
+
+    secrets:
+      CI_PAT:
+        required: true
+      ID_RSA:
+        required: true
+
+jobs:
+  # Cypress run
+  cypress-run:
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    name: "Cypress run"
+    if: ${{ inputs.frontend_modules != '[]' }}
+    strategy:
+      matrix:
+        module: ${{ fromJson(inputs.frontend_modules) }}
+    steps:
+    -
+      name: Setup kernel for nodejs, increase watchers
+      run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
+    -
+      name: Configure SSH KEYS
+      uses: webfactory/ssh-agent@v0.5.0
+      with:
+        ssh-private-key: |
+          ${{ secrets.ID_RSA }}
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.CI_PAT }}
+    -
+      name: Setup NodeJS
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ inputs.node_version }}
+    -
+      name: Configure npmrc
+      run: |
+        echo "//npm.pkg.github.com/:_authToken=${{ secrets.CI_PAT }}" > ~/.npmrc
+        npm install -g yarn
+    -
+      name: Retrieve deploy information
+      id: deploy_information
+      run: |
+        cypress_key=$( cat ${{ matrix.module }}/package.json | jq -n '.deploy."${{ inputs.env }}".cypress_key' )
+        cat ${{ matrix.module }}/package.json | \
+          jq '.deploy."${{ inputs.env }}" | to_entries | map("\(.key)=\(.value)")|.[]' -r | \
+          tee $GITHUB_OUTPUT
+    -
+      name: Build assets
+      run: make ENV=${{ inputs.env }} BRANCH_NAME="${{ github.ref_name }}" CYPRESS_KEY=${{ steps.deploy_information.outputs.cypress_key }} static/build/${{ matrix.module }}
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Cypress Failure Artifact
+      uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: ${{ matrix.module }}-cypress-screenshots
+        path: ${{ matrix.module }}/cypress/screenshots
+    -
+      name: Cypress video
+      uses: actions/upload-artifact@v1
+      if: failure()
+      with:
+        name: ${{ matrix.module }}-cypress-videos
+        path: ${{ matrix.module }}/cypress/videos
+ 

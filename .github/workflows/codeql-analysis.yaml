@@ -1,0 +1,81 @@
+name: CodeQL Analysis
+on:
+  workflow_call:
+    inputs:
+      languages:
+        type: string
+        default: '[]'
+        required: false
+        description: JSON list of languages
+      java_version:
+        type: string
+        default: '17'
+        required: false
+        description: Java version
+      nodejs_version:
+        type: string
+        default: '16'
+        required: false
+        description: NodeJS version
+      python_version:
+        type: string
+        default: '3.8'
+        required: false
+        description: Python version
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJson(inputs.languages) }}
+    steps:
+    -
+      name: Checkout repository
+      uses: actions/checkout@v3
+    -
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ inputs.nodejs_version }}
+    -
+      name: Setup java
+      uses: actions/setup-java@v3
+      if: ${{ contains(fromJson(inputs.languages), 'java') }}
+      with:
+        cache: maven
+        distribution: adopt
+        java-version: ${{ inputs.java_version }}
+        server-id: github
+        server-username: GITHUB_USER
+        server-password: GITHUB_TOKEN
+
+    -
+      name: Setup Python
+      uses: actions/setup-python@v2
+      if: ${{ contains(fromJson(inputs.languages), 'python') }}
+      with:
+        python-version: ${{ inputs.python_version }}
+    -
+      name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: ${{ matrix.language }}
+    -
+      name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+      env:
+        GITHUB_USER: skafld
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+    -
+      name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2

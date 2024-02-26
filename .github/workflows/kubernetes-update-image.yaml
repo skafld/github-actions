@@ -1,0 +1,86 @@
+name: Kubernetes image update
+on:
+  workflow_call:
+    inputs:
+      docker_modules:
+        type: string
+        default: '[]'
+        required: true
+        description: Json list of docker modules that changed
+      docker_image_tag:
+        type: string
+        required: true
+        description: "Docker image tag"
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      ENVIRONMENT_NAMES:
+        required: false
+
+jobs:
+  env:
+    name: Env
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      names: ${{ steps.env.outputs.names }}
+
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+    -
+      id: env
+      run: |
+        echo "names=$(github-env-names -t kubernetes -s config -o json || echo '[]')" >> $GITHUB_OUTPUT
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  patch:
+    needs: [env]
+    name: "Patch"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    steps:
+      -
+        name: Checkout Project
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.CI_PAT }}
+          fetch-depth: 0
+      -
+        name: Configure git
+        run: |
+          git config --local user.name "skafld"
+          git config --local user.email "skafld@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.CI_PAT }}@github.com/${{ github.repository }}
+      -
+        name: Update image tag
+        run: |
+          for env in ${{ join(fromJson(needs.env.outputs.names), ' ') }}; do
+            for module in ${{ join(fromJson(inputs.docker_modules), ' ') }}; do
+                if [ ! -f infra/kubernetes/config/${env}/*/${module}/kustomization.yaml ]; then
+                  echo "Skipping update for module '${module}' in '${env}'"
+                  continue
+                fi
+
+                echo "Updating module '${module}' in '${env}'"
+                sed -i 's|newTag:.*|newTag: ${{ inputs.docker_image_tag }}|g' infra/kubernetes/config/${env}/*/${module}/kustomization.yaml
+                echo "Updating deployment files"
+                find "infra/kubernetes/config/${env}" -path "*${module}/deployment.yaml" -ls -exec sed -i 's|kubernetes.io/change-cause:.*|kubernetes.io/change-cause: ${{ inputs.docker_image_tag }}|g' {} \;
+                echo "Stamping dag templates to git hash"
+                find "infra/kubernetes/config/${env}" -path "*${module}/airflow-job-template.yaml" -ls -exec perl -i -pe's|image: (.+?):.*|image: $1:${{ inputs.docker_image_tag }}|g' {} \;
+                git add .
+                git diff
+                git commit -m "Bump module '${module}' in '${env}' to ${{ inputs.docker_image_tag }}" -m "Triggered by https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
+            done
+          done
+      -
+        name: Push changes
+        uses: ad-m/github-push-action@0fafdd62b84042d49ec0cb92d9cac7f7ce4ec79e
+        with:
+          github_token: ${{ secrets.CI_PAT }}
+          branch: ${{ github.ref }}

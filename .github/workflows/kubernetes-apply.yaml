@@ -1,0 +1,162 @@
+name: Kubernetes apply
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'development | load | production'
+        default: 'development'
+        required: true
+        type: string
+      ref:
+        description: Git Ref (Default to workflow branch)
+        required: false
+        type: string
+        default: ''
+      skip:
+        type: string
+        default: '[]'
+        required: false
+        description: JSON list of steps to skip
+      runner_tags:
+        type: string
+        required: false
+        default: '["self-hosted", "development"]'
+        description: GitHub runner tags
+    secrets:
+      CI_PAT:
+        required: true
+      ENVIRONMENT_NAMES:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_ASSUMABLE_ROLES_MAP:
+        required: true
+
+jobs:
+  ref:
+    name: Ref
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+    -
+      id: version
+      run: |
+        echo "ref=${{ github.event.inputs.ref != '' && github.event.inputs.ref || github.ref }}" >> $GITHUB_OUTPUT
+
+  env:
+    name: Env
+    needs: [ref]
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    outputs:
+      names: ${{ steps.env.outputs.names }}
+
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      id: env
+      run: |
+        echo "names=$(github-env-names -t kubernetes -o json || echo '[]')" >> $GITHUB_OUTPUT
+      env:
+        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
+
+  dry-run:
+    needs: [ref, env]
+    name: "Dry-run (${{ inputs.env }})"
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    if: contains(fromJson(needs.env.outputs.names), inputs.env)
+    container:
+      image:  ghcr.io/skafld/core-infra/ci:latest
+      credentials:
+        username: skafld
+        password: ${{ secrets.CI_PAT }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Setup kube config
+      run: |
+        mkdir ~/.kube
+        aws ssm get-parameter --name ${{ inputs.env }}-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: kubectl dry-run
+      run: make ENV=${{ inputs.env }} kubectl/dry-run
+
+  apply:
+    needs: [ref, env, dry-run]
+    name: "Apply (${{ inputs.env }})"
+    concurrency: kubernetes-${{ inputs.env }}
+    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    if: contains(fromJson(needs.env.outputs.names), inputs.env)
+    environment:
+      name: kubernetes-${{ inputs.env }}
+    container:
+      image:  ghcr.io/skafld/core-infra/ci:latest
+      credentials:
+        username: skafld
+        password: ${{ secrets.CI_PAT }}
+    steps:
+    -
+      name: Checkout Project
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ needs.ref.outputs.ref }}
+    -
+      name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-region: us-east-1
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    -
+      name: Setup kube config
+      run: |
+        mkdir ~/.kube
+        aws ssm get-parameter --name ${{ inputs.env }}-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
+    -
+      name: Assume AWS Role
+      uses: aws-actions/configure-aws-credentials@v2
+      if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      with:
+        aws-region: us-east-1
+        role-duration-seconds: 1800
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
+      env:
+        AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
+    -
+      name: kubectl apply
+      run: make ENV=${{ inputs.env }} kubectl/apply
+    -
+      name: kubectl status
+      run: make ENV=${{ inputs.env }} kubectl/rollout-status
+      if: ${{ ! contains(fromJson(inputs.skip), 'rollout-status') }}
