@@ -79,7 +79,7 @@ jobs:
         ref: ${{ needs.ref.outputs.ref }}
     -
       name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: us-east-1
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -91,7 +91,7 @@ jobs:
         aws ssm get-parameter --name ${{ inputs.env }}-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
     -
       name: Assume AWS Role
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
       with:
         aws-region: us-east-1
@@ -121,7 +121,7 @@ jobs:
         ref: ${{ needs.ref.outputs.ref }}
     -
       name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-region: us-east-1
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -133,7 +133,7 @@ jobs:
         aws ssm get-parameter --name ${{ inputs.env }}-kubernetes-config --query Parameter.Value --with-decryption --output text --region us-east-1 > ~/.kube/config
     -
       name: Assume AWS Role
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       if: ${{ fromJson(env.AWS_ASSUMABLE_ROLES_MAP)[inputs.env] }}
       with:
         aws-region: us-east-1
