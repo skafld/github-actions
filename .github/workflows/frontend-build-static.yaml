@@ -112,7 +112,7 @@ jobs:
         AWS_ASSUMABLE_ROLES_MAP: ${{ secrets.AWS_ASSUMABLE_ROLES_MAP }}
     -
       name: Deploy assets
-      uses: reggionick/s3-deploy@v3
+      uses: reggionick/s3-deploy@v4
       with:
         folder: ${{ matrix.module }}/${{ inputs.dist_folder }}
         bucket: ${{ steps.deploy_information.outputs.bucket_name }}
