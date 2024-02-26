@@ -56,7 +56,7 @@ jobs:
       run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
     -
       name: Checkout Project
-      uses: actions/checkout@v1
+      uses: actions/checkout@v4
     -
       name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
