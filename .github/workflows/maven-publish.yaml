@@ -20,7 +20,7 @@ on:
       runner_tags:
         type: string
         required: false
-        default: '["self-hosted", "development"]'
+        
         description: GitHub runner tags
     secrets:
       CI_PAT:

@@ -9,7 +9,7 @@ on:
       runner_tags:
         type: string
         required: false
-        default: '["self-hosted", "development"]'
+        
     secrets:
       CI_PAT:
         required: true
