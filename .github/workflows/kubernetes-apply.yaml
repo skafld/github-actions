@@ -37,7 +37,7 @@ on:
 jobs:
   ref:
     name: Ref
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       ref: ${{ steps.version.outputs.ref }}
     steps:
@@ -49,7 +49,7 @@ jobs:
   env:
     name: Env
     needs: [ref]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       names: ${{ steps.env.outputs.names }}
 
@@ -69,7 +69,7 @@ jobs:
   dry-run:
     needs: [ref, env]
     name: "Dry-run (${{ inputs.env }})"
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     if: contains(fromJson(needs.env.outputs.names), inputs.env)
     container:
       image:  ghcr.io/skafld/core-infra/ci:latest
@@ -114,7 +114,7 @@ jobs:
     needs: [ref, env, dry-run]
     name: "Apply (${{ inputs.env }})"
     concurrency: kubernetes-${{ inputs.env }}
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     if: contains(fromJson(needs.env.outputs.names), inputs.env)
     environment:
       name: kubernetes-${{ inputs.env }}

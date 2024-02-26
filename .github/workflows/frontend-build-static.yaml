@@ -49,7 +49,7 @@ jobs:
   # Build static assets
   build:
     name: "Static Build"
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     if: ${{ inputs.frontend_modules != '[]' }}
     strategy:
       matrix:

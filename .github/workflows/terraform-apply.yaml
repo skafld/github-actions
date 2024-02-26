@@ -32,7 +32,7 @@ on:
 jobs:
   ref:
     name: Ref
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       ref: ${{ steps.version.outputs.ref }}
     steps:
@@ -44,7 +44,7 @@ jobs:
   env:
     name: Env
     needs: [ref]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       names: ${{ steps.env.outputs.names }}
 
@@ -64,7 +64,7 @@ jobs:
   plan:
     needs: [ref, env]
     name: "Plan (${{ inputs.env }})"
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     concurrency: terraform-${{ github.event.inputs.env }}
     if: contains(fromJson(needs.env.outputs.names), inputs.env)
     env:
@@ -118,7 +118,7 @@ jobs:
         path: infra/terraform/terraform.plan
 
   apply:
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     needs: [ref, env, plan]
     name: "Apply (${{ inputs.env }})"
     if: contains(fromJson(needs.env.outputs.names), inputs.env)

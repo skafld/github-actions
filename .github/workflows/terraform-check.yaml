@@ -27,7 +27,7 @@ on:
 jobs:
   env:
     name: Env
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       names: ${{ steps.env.outputs.names }}
 
@@ -44,7 +44,7 @@ jobs:
 
   validate:
     name: "Validate"
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     container:
       image:  ghcr.io/skafld/core-infra/ci:latest
       credentials:
@@ -76,7 +76,7 @@ jobs:
     name: "Plan"
     needs: [env, validate]
     if: ${{ needs.env.outputs.names }}
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     concurrency: terraform-${{ matrix.env }}
     env:
       GITHUB_TOKEN: ${{ secrets.CI_PAT }}

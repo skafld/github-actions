@@ -28,7 +28,7 @@ on:
 jobs:
   verify:
     name: "Verify"
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     strategy:
       fail-fast: false
       matrix:

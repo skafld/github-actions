@@ -13,7 +13,7 @@ on:
         description: GitHub runner tags
 jobs:
   notify:
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     steps:
       - name: Print info
         run: |

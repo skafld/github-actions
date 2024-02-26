@@ -49,7 +49,7 @@ on:
 jobs:
   diff:
     name: Compare
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       diff: ${{ steps.run.outputs.diff }}
       tags: ${{ steps.run.outputs.tags }}

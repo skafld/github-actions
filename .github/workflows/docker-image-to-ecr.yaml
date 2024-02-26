@@ -20,7 +20,7 @@ on:
 jobs:
   images:
     name: Images
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       image_names: ${{ steps.images.outputs.image_names }}
     steps:
@@ -35,7 +35,7 @@ jobs:
   docker-image-to-ecr:
     name: "Push to ECR"
     needs: [images]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     strategy:
       fail-fast: false
       matrix:

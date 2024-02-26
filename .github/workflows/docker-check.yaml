@@ -62,7 +62,7 @@ on:
 jobs:
   gitversion:
     name: GitVersion
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       docker_tag: v${{ steps.gitversion.outputs.MajorMinorPatch }}-${{ steps.gitversion.outputs.ShortSha }}
     steps:
@@ -87,7 +87,7 @@ jobs:
     name: Build
     needs: [gitversion]
     if: ${{ inputs.docker_modules != '[]' }}
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     strategy:
       fail-fast: false
       matrix:

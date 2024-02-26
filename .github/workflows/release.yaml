@@ -19,7 +19,7 @@ on:
 jobs:
   ref:
     name: Ref
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       ref: ${{ steps.version.outputs.ref }}
     steps:
@@ -31,7 +31,7 @@ jobs:
   env:
     name: Env
     needs: [ref]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       terraform_names: ${{ steps.terraform.outputs.names }}
       kubernetes_names: ${{ steps.kubernetes.outputs.names }}
@@ -56,7 +56,7 @@ jobs:
   diff:
     name: Diff
     needs: [env]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     outputs:
       terraform: ${{ steps.changes.outputs.terraform }}
       kubernetes: ${{ steps.changes.outputs.kubernetes }}
@@ -72,7 +72,7 @@ jobs:
 
   kubernetes-apply:
     needs: [diff, env]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     name: "Trigger kubernetes apply (${{ inputs.env }})"
     if: ${{ needs.diff.outputs.kubernetes == 'changed' && contains(fromJson(needs.env.outputs.kubernetes_names), inputs.env) }}
     steps:
@@ -94,7 +94,7 @@ jobs:
 
   terraform-apply:
     needs: [diff, env]
-    runs-on: ${{ fromJson(inputs.runner_tags) }}
+    runs-on: ["ubuntu-20.04"]
     name: "Trigger terraform apply (${{ inputs.env }})"
     if: ${{ needs.diff.outputs.terraform == 'changed' && contains(fromJson(needs.env.outputs.terraform_names), inputs.env) }}
     steps:
