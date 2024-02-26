@@ -17,13 +17,6 @@ on:
         required: false
         
         description: GitHub runner tags
-    secrets:
-      CI_PAT:
-        required: true
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
 
 jobs:
   verify:
@@ -37,8 +30,6 @@ jobs:
     -
       name: Checkout Project
       uses: actions/checkout@v3
-      with:
-        token: ${{ secrets.CI_PAT }}
     -
       name: Setup java
       uses: actions/setup-java@v3
@@ -53,9 +44,6 @@ jobs:
     -
       name: Maven verify
       run: make maven/verify/${{ matrix.module }}
-      env:
-        GITHUB_USER: skafld
-        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
     -
       name: Publish Test Report
       uses: mikepenz/action-junit-report@v3

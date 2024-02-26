@@ -47,13 +47,6 @@ on:
         required: false
         
         description: GitHub runner tags
-    secrets:
-      CI_PAT:
-        required: true
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
     outputs:
       docker_image_tag:
         description: "Docker image tag"
@@ -106,10 +99,6 @@ jobs:
         echo "python_version=$(cut -d'=' -f2 <<< $(grep -s python_version ${{ matrix.module }}/build.properties || echo '${{ inputs.python_version }}'))" >> $GITHUB_OUTPUT
         echo "docker_platform=$(cut -d'=' -f2 <<< $(grep -s docker_platform ${{ matrix.module }}/build.properties || echo '${{ inputs.docker_platform }}'))" >> $GITHUB_OUTPUT
     -
-      name: Configure git override
-      run: |
-        git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
-    -
       name: Setup Docker QEMU
       if: ${{ steps.properties.outputs.docker_platform }}
       uses: docker/setup-qemu-action@v2
@@ -117,7 +106,6 @@ jobs:
         image: 'public.ecr.aws/eks-distro-build-tooling/binfmt-misc:qemu-v7.0.0'
     - name: Setup Buildx
       if: ${{ steps.properties.outputs.docker_platform }}
-      #TODO: Move this to CI image
       run: |
         mkdir -p /home/runner/.docker/cli-plugins/
         wget https://github.com/docker/buildx/releases/download/v0.10.4/buildx-v0.10.4.linux-amd64 -qO /home/runner/.docker/cli-plugins/docker-buildx && chmod +x /home/runner/.docker/cli-plugins/docker-buildx
@@ -149,11 +137,7 @@ jobs:
       env:
         MODULE_NAME: ${{ matrix.module }}
         DOCKER_TAG: ${{ needs.gitversion.outputs.docker_tag }}
-        GITHUB_USER: skafld
-        GITHUB_TOKEN: ${{ secrets.CI_PAT }}
     -
       name: Build image
       run: make docker/build/${{ matrix.module }} DOCKER_IMAGE_TAG=${{ needs.gitversion.outputs.docker_tag }} DOCKER_PLATFORM=${{ steps.properties.outputs.docker_platform }}
       env:
-        GITHUB_USER: skafld
-        GITHUB_TOKEN: ${{ secrets.CI_PAT }}

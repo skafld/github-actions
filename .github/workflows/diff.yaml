@@ -11,9 +11,6 @@ on:
         required: false
         
         description: GitHub runner tags
-    secrets:
-      CI_PAT:
-        required: true
     outputs:
       diff:
         description: "diff"

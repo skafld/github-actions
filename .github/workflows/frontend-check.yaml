@@ -27,12 +27,6 @@ on:
         default: 'main'
         description: The branch name
 
-    secrets:
-      CI_PAT:
-        required: true
-      ID_RSA:
-        required: true
-
 jobs:
   # Cypress run
   cypress-run:
@@ -47,16 +41,8 @@ jobs:
       name: Setup kernel for nodejs, increase watchers
       run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p
     -
-      name: Configure SSH KEYS
-      uses: webfactory/ssh-agent@v0.5.0
-      with:
-        ssh-private-key: |
-          ${{ secrets.ID_RSA }}
-    -
       name: Checkout Project
       uses: actions/checkout@v3
-      with:
-        token: ${{ secrets.CI_PAT }}
     -
       name: Setup NodeJS
       uses: actions/setup-node@v3
