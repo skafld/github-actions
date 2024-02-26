@@ -34,7 +34,7 @@ jobs:
     steps:
     -
       name: Checkout Project
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     -
       id: env
       run: |
@@ -52,7 +52,7 @@ jobs:
         git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
     -
       name: Checkout Project
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     -
       name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
@@ -87,7 +87,7 @@ jobs:
         git config --global url."https://oauth2:${{ secrets.CI_PAT }}@github.com".insteadOf ssh://git@github.com
     -
       name: Checkout Project
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     -
       name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
