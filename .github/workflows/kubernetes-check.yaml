@@ -46,11 +46,6 @@ jobs:
     runs-on: ["ubuntu-20.04"]
     name: "Kustomize (local)"
     if: ${{ ! contains(fromJson(inputs.skip), 'kustomize') }}
-    container:
-      image:  ghcr.io/skafld/core-infra/ci:latest
-      credentials:
-        username: skafld
-        password: ${{ secrets.CI_PAT }}
     steps:
     -
       name: Checkout Project
@@ -85,11 +80,6 @@ jobs:
       fail-fast: false
       matrix:
         env: ${{ fromJson(needs.env.outputs.names) }}
-    container:
-      image:  ghcr.io/skafld/core-infra/ci:latest
-      credentials:
-        username: skafld
-        password: ${{ secrets.CI_PAT }}
     steps:
     -
       name: Checkout Project

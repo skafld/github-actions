@@ -45,11 +45,6 @@ jobs:
   validate:
     name: "Validate"
     runs-on: ["ubuntu-20.04"]
-    container:
-      image:  ghcr.io/skafld/core-infra/ci:latest
-      credentials:
-        username: skafld
-        password: ${{ secrets.CI_PAT }}
     steps:
     -
       name: Configure git override

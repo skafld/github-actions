@@ -71,11 +71,6 @@ jobs:
     name: "Dry-run (${{ inputs.env }})"
     runs-on: ["ubuntu-20.04"]
     if: contains(fromJson(needs.env.outputs.names), inputs.env)
-    container:
-      image:  ghcr.io/skafld/core-infra/ci:latest
-      credentials:
-        username: skafld
-        password: ${{ secrets.CI_PAT }}
     steps:
     -
       name: Checkout Project
@@ -118,11 +113,6 @@ jobs:
     if: contains(fromJson(needs.env.outputs.names), inputs.env)
     environment:
       name: kubernetes-${{ inputs.env }}
-    container:
-      image:  ghcr.io/skafld/core-infra/ci:latest
-      credentials:
-        username: skafld
-        password: ${{ secrets.CI_PAT }}
     steps:
     -
       name: Checkout Project
